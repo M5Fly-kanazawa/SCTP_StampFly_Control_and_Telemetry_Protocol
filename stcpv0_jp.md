@@ -137,10 +137,68 @@ struct CmdRC {
 
 ---
 
-## 9. C/Python テンプレート
+## 9. C/C++ テンプレート
 
-* C (ESP-IDF) ヘッダ/送信コード例。
-* Python デコーダ例。
+```c
+// stcp.h (minimal)
+#pragma once
+#include <stdint.h>
+
+#define STCP_V1 1
+
+enum stcp_type {
+  STCP_HELLO=0, STCP_PONG=1, STCP_ATT_FAST=2, STCP_TEL_SLOW=3,
+  STCP_EVENT=4, STCP_PARAM_GET=5, STCP_PARAM_VALUE=6, STCP_PARAM_SET=7,
+  STCP_CMD_GENERIC=8, STCP_ACK=9, STCP_PING=10, STCP_TIMESYNC=11, STCP_LOG_CHUNK=12,
+  STCP_FILE_XFER=13,
+  STCP_CMD_RC16=20, STCP_CMD_RATE16=21, STCP_CMD_ATT_Q=22, STCP_CMD_SYS=23,
+};
+
+typedef struct __attribute__((packed)) {
+  uint8_t vt;      // V:3 bits | Type:5 bits
+  uint8_t flags;   // A,E,H,C,X (bit0..)
+  uint16_t seq;    // BE
+  uint16_t src;    // BE
+  uint16_t tms_d;  // BE
+  uint16_t len;    // BE payload length
+  uint16_t rsv;    // BE
+} stcp_hdr_t;
+
+static inline void stcp_hdr_init(stcp_hdr_t* h, uint8_t type, uint16_t src, uint16_t seq, uint16_t tms_d, uint16_t len) {
+  h->vt = (uint8_t)((STCP_V1 & 0x07) << 5) | (type & 0x1F);
+  h->flags = 0; h->seq = __builtin_bswap16(seq); h->src = __builtin_bswap16(src);
+  h->tms_d = __builtin_bswap16(tms_d); h->len = __builtin_bswap16(len); h->rsv = 0;
+}
+
+// ===== Command payloads =====
+typedef struct __attribute__((packed)) { int16_t roll, pitch, yaw, thr; uint8_t mode_aux, rsv; } stcp_cmd_rc16_t;
+typedef struct __attribute__((packed)) { int16_t p, q, r, T; } stcp_cmd_rate16_t;
+typedef struct __attribute__((packed)) { uint16_t qx, qy, qz, qw, T, rsv; } stcp_cmd_att_q_t; // float16 encoded
+
+typedef struct __attribute__((packed)) {
+  float qx, qy, qz, qw; // BE float → convert when writing
+  float p, q, r;        // rad/s
+  float alt;            // m
+} stcp_att_fast_t;
+```
+
+```c
+// send_cmd_rc16.c (sketch)
+#include "stcp.h"
+#include <string.h>
+
+static uint16_t g_seq;
+
+void send_cmd_rc16(uint16_t src, int16_t roll, int16_t pitch, int16_t yaw, int16_t thr, uint8_t mode, uint8_t aux){
+  stcp_cmd_rc16_t pl = { __builtin_bswap16(roll), __builtin_bswap16(pitch), __builtin_bswap16(yaw), __builtin_bswap16(thr), (uint8_t)((mode<<4)|(aux&0x0F)), 0 };
+  stcp_hdr_t h;
+  stcp_hdr_init(&h, STCP_CMD_RC16, src, g_seq++, 2, sizeof(pl));
+  uint8_t buf[sizeof(h)+sizeof(pl)];
+  memcpy(buf,&h,sizeof(h));
+  memcpy(buf+sizeof(h),&pl,sizeof(pl));
+  // transport send
+}
+```
 
 ---
 
